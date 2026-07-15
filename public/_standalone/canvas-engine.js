@@ -132,6 +132,7 @@ var CanvasEngine = (() => {
   // lib/auto-layout.ts
   var LAYOUT_GAP = 12;
   var LAYOUT_PAD = 12;
+  var LAYOUT_BORDER = 1;
   var NESTED_HEADER_H = 36;
   var NESTED_BODY_MIN = 48;
   var MAX_SINGLE_ROW_WIDTH = 960;
@@ -202,13 +203,14 @@ var CanvasEngine = (() => {
     return floorW;
   }
   function measureContainerSizeFromItems(items, minInnerWidth = 240) {
+    const border2 = LAYOUT_BORDER * 2;
     if (!items.length) {
       const pad2 = LAYOUT_PAD * 2;
       return {
         bodyWidth: minInnerWidth,
         bodyHeight: NESTED_BODY_MIN,
-        containerWidth: minInnerWidth + pad2,
-        containerHeight: NESTED_BODY_MIN + pad2 + NESTED_HEADER_H
+        containerWidth: minInnerWidth + pad2 + border2,
+        containerHeight: NESTED_BODY_MIN + pad2 + NESTED_HEADER_H + border2
       };
     }
     const wrapW = resolveWrapWidth(items, minInnerWidth);
@@ -220,8 +222,8 @@ var CanvasEngine = (() => {
     return {
       bodyWidth: layout.width,
       bodyHeight: layout.height,
-      containerWidth: layout.width + pad,
-      containerHeight: layout.height + pad + NESTED_HEADER_H
+      containerWidth: layout.width + pad + border2,
+      containerHeight: layout.height + pad + NESTED_HEADER_H + border2
     };
   }
   function measureContainerSize(children, minInnerWidth = 240) {

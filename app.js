@@ -1121,8 +1121,14 @@
     if (state.viewMode === "split") {
       dom.canvasPanel.style.flex = "1";
       dom.dsmPanel.style.width = "46%";
+      dom.dsmPanel.style.maxWidth = "720px";
       dom.canvasPanel.style.display = "block";
       dom.dsmPanel.style.display = "block";
+    } else if (state.viewMode === "dsm") {
+      dom.dsmPanel.style.width = "100%";
+      dom.dsmPanel.style.maxWidth = "none";
+    } else {
+      dom.canvasPanel.style.flex = "1";
     }
     document.querySelectorAll("[data-view]").forEach(function (btn) {
       btn.classList.toggle("active", btn.getAttribute("data-view") === state.viewMode);
