@@ -130,6 +130,17 @@ var CanvasEngine = (() => {
   }
 
   // lib/auto-layout.ts
+  var DEFAULT_EMPTY_SIZE = {
+    SPACE: { width: 420, height: 320 },
+    RECTANGLE: { width: 240, height: 72 }
+  };
+  function defaultEmptySize(node) {
+    if (node.type === "SPACE" || node.type === "RECTANGLE") return DEFAULT_EMPTY_SIZE[node.type];
+    return node.ui_size;
+  }
+  function isContainerType(type) {
+    return type === "SPACE" || type === "RECTANGLE";
+  }
   var LAYOUT_GAP = 12;
   var LAYOUT_PAD = 12;
   var LAYOUT_BORDER = 1;
@@ -147,9 +158,30 @@ var CanvasEngine = (() => {
     if (!children.length) return 0;
     return Math.max(...children.map((c) => c.ui_order ?? childSortKey(c))) + 1;
   }
-  function isLayoutContainer(node, nodes) {
-    if (node.type !== "RECTANGLE" && node.type !== "SPACE") return false;
-    return childrenOf(nodes, node.id).length > 0;
+  function collectContainerIds(nodes, rootId, acc) {
+    for (const ch of childrenOf(nodes, rootId)) {
+      if (isContainerType(ch.type)) acc.add(ch.id);
+      collectContainerIds(nodes, ch.id, acc);
+    }
+  }
+  function syncContainerIds(nodes, ids) {
+    let out = { ...nodes };
+    const sorted = [...ids].sort((a, b) => nodeDepth(out, b) - nodeDepth(out, a));
+    for (const id of sorted) {
+      const node = out[id];
+      if (!node || !isContainerType(node.type)) continue;
+      const ch = sortChildrenByOrder(childrenOf(out, id));
+      if (!ch.length) {
+        out[id] = { ...node, ui_size: defaultEmptySize(node) };
+        continue;
+      }
+      const sized = measureContainerSizeFromNodes(out, ch, minInnerWidthFor(node));
+      out[id] = {
+        ...node,
+        ui_size: { width: sized.containerWidth, height: sized.containerHeight }
+      };
+    }
+    return out;
   }
   function minInnerWidthFor(node) {
     return node.type === "SPACE" ? 280 : 220;
@@ -188,7 +220,7 @@ var CanvasEngine = (() => {
     const maxRowW = rowWidths.length ? Math.max(...rowWidths) : 0;
     const contentH = y + rowH;
     return {
-      width: Math.max(innerWidth, maxRowW),
+      width: maxRowW > 0 ? maxRowW : innerWidth,
       height: Math.max(NESTED_BODY_MIN, contentH),
       rowWidths
     };
@@ -219,12 +251,34 @@ var CanvasEngine = (() => {
       layout = computeFlexLayout(items, layout.width);
     }
     const pad = LAYOUT_PAD * 2;
+    const bodyWidth = Math.max(minInnerWidth, layout.width);
     return {
-      bodyWidth: layout.width,
+      bodyWidth,
       bodyHeight: layout.height,
-      containerWidth: layout.width + pad + border2,
+      containerWidth: bodyWidth + pad + border2,
       containerHeight: layout.height + pad + NESTED_HEADER_H + border2
     };
+  }
+  function effectiveNodeSize(nodes, id) {
+    const node = nodes[id];
+    if (!node) return { width: 0, height: 0 };
+    const ch = sortChildrenByOrder(childrenOf(nodes, id));
+    if (isContainerType(node.type) && ch.length > 0) {
+      const sized = measureContainerSizeFromNodes(nodes, ch, minInnerWidthFor(node));
+      return { width: sized.containerWidth, height: sized.containerHeight };
+    }
+    if (isContainerType(node.type) && ch.length === 0) {
+      return defaultEmptySize(node);
+    }
+    return { width: node.ui_size.width, height: node.ui_size.height };
+  }
+  function measureContainerSizeFromNodes(nodes, children, minInnerWidth = 240) {
+    const sorted = sortChildrenByOrder(children);
+    const items = sorted.map((c) => {
+      const s = effectiveNodeSize(nodes, c.id);
+      return { id: c.id, w: s.width, h: s.height };
+    });
+    return measureContainerSizeFromItems(items, minInnerWidth);
   }
   function measureContainerSize(children, minInnerWidth = 240) {
     const sorted = sortChildrenByOrder(children);
@@ -241,21 +295,8 @@ var CanvasEngine = (() => {
     return depth;
   }
   function syncAllContainerLayouts(nodes) {
-    const out = { ...nodes };
-    const ids = Object.keys(out).sort(
-      (a, b) => nodeDepth(out, b) - nodeDepth(out, a)
-    );
-    for (const id of ids) {
-      const node = out[id];
-      if (!isLayoutContainer(node, out)) continue;
-      const ch = sortChildrenByOrder(childrenOf(out, id));
-      const sized = measureContainerSize(ch, minInnerWidthFor(node));
-      out[id] = {
-        ...node,
-        ui_size: { width: sized.containerWidth, height: sized.containerHeight }
-      };
-    }
-    return out;
+    const ids = Object.keys(nodes).filter((id) => isContainerType(nodes[id].type));
+    return syncContainerIds(nodes, ids);
   }
   function findInsertIndex(items, innerWidth, localX, localY) {
     if (!items.length) return 0;
@@ -296,22 +337,15 @@ var CanvasEngine = (() => {
     return rest.map((c, i) => ({ ...c, ui_order: i, ui_position: { x: 0, y: 0 } }));
   }
   function syncContainerBranch(nodes, startId) {
-    let out = { ...nodes };
-    const chain = [];
+    if (!startId) return nodes;
+    const toSync = /* @__PURE__ */ new Set();
     let cur = startId;
     while (cur) {
-      chain.push(cur);
-      cur = out[cur]?.parentId ?? null;
+      toSync.add(cur);
+      collectContainerIds(nodes, cur, toSync);
+      cur = nodes[cur]?.parentId ?? null;
     }
-    chain.sort((a, b) => nodeDepth(out, b) - nodeDepth(out, a));
-    for (const id of chain) {
-      const node = out[id];
-      if (!isLayoutContainer(node, out)) continue;
-      const ch = sortChildrenByOrder(childrenOf(out, id));
-      const sized = measureContainerSize(ch, minInnerWidthFor(node));
-      out[id] = { ...node, ui_size: { width: sized.containerWidth, height: sized.containerHeight } };
-    }
-    return out;
+    return syncContainerIds(nodes, toSync);
   }
 
   // lib/canvas/coords.ts
@@ -356,7 +390,7 @@ var CanvasEngine = (() => {
     const parent = nodes[parentId];
     if (!parent) return 240;
     const ch = childrenOf(nodes, parentId);
-    return measureContainerSize(ch, minInnerWidthFor(parent)).bodyWidth;
+    return measureContainerSizeFromNodes(nodes, ch, minInnerWidthFor(parent)).bodyWidth;
   }
   function insertIndexInParent(nodes, parentId, excludeChildId, localX, localY) {
     const siblings = sortChildrenByOrder(childrenOf(nodes, parentId)).filter(

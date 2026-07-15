@@ -61,6 +61,72 @@
     return nodes;
   }
 
+  function finiteNum(v, fallback) {
+    var n = Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  }
+  function positiveNum(v, fallback) {
+    var n = Number(v);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+  }
+
+  /**
+   * Чинит импортированный JSON: нормализует типы, размеры, позиции,
+   * висячие ссылки на родителей/зависимости и разрывает циклы вложенности.
+   */
+  function sanitizeProject(data) {
+    var raw = data && typeof data === "object" ? (data.nodes || data) : null;
+    if (!raw || typeof raw !== "object") throw new Error("нет узлов (nodes)");
+
+    var clean = {};
+    Object.keys(raw).forEach(function (key) {
+      var n = raw[key];
+      if (!n || typeof n !== "object") return;
+      var id = n.id != null ? String(n.id) : String(key);
+      var type = n.type === "SPACE" || n.type === "RECTANGLE" || n.type === "SQUARE" ? n.type : "RECTANGLE";
+      var def = DEFAULT_SIZE[type];
+      var pos = n.ui_position && typeof n.ui_position === "object" ? n.ui_position : {};
+      var size = n.ui_size && typeof n.ui_size === "object" ? n.ui_size : {};
+      clean[id] = {
+        id: id,
+        type: type,
+        rectKind: type === "RECTANGLE" ? (RECT_KINDS.indexOf(n.rectKind) >= 0 ? n.rectKind : "DEFAULT") : undefined,
+        title: typeof n.title === "string" && n.title.trim() ? n.title : DEFAULT_TITLE[type],
+        parentId: n.parentId != null ? String(n.parentId) : null,
+        dependencies: Array.isArray(n.dependencies) ? n.dependencies.map(String) : [],
+        ui_position: { x: finiteNum(pos.x, 0), y: finiteNum(pos.y, 0) },
+        ui_size: { width: positiveNum(size.width, def.width), height: positiveNum(size.height, def.height) },
+        ui_order: Number.isFinite(Number(n.ui_order)) ? Number(n.ui_order) : undefined,
+      };
+    });
+
+    if (!Object.keys(clean).length) throw new Error("нет валидных узлов");
+
+    // Висячие ссылки на родителей и зависимости
+    Object.keys(clean).forEach(function (id) {
+      var n = clean[id];
+      if (n.parentId != null && !clean[n.parentId]) n.parentId = null;
+      n.dependencies = n.dependencies.filter(function (d) { return clean[d] && d !== id; });
+    });
+
+    // Разрыв циклов вложенности
+    Object.keys(clean).forEach(function (id) {
+      var seen = {};
+      var cur = id;
+      while (cur != null && clean[cur]) {
+        if (seen[cur]) break;
+        seen[cur] = true;
+        var p = clean[cur].parentId;
+        if (p != null && seen[p]) { clean[cur].parentId = null; break; }
+        cur = p;
+      }
+    });
+
+    normalizeLayoutOrders(clean);
+    // Пересчёт размеров контейнеров под детей (снизу вверх)
+    return CE.syncAllContainerLayouts(clean);
+  }
+
   var MOCK_NODES = normalizeLayoutOrders({
     "space-backend": {
       id: "space-backend", type: "SPACE", title: "Backend Platform", parentId: null, dependencies: [],
@@ -1375,8 +1441,8 @@
           try {
             var data = JSON.parse(reader.result);
             pushHistory();
-            state.nodes = data.nodes;
-            state.projectName = data.name || "Imported";
+            state.nodes = sanitizeProject(data);
+            state.projectName = (data && data.name) || "Imported";
             state.path = [];
             state.selectedId = null;
             state.selectedIds = [];

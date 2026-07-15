@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import { motion } from "framer-motion"
 import { Box, Hash, Pencil, Settings2, Square, X } from "lucide-react"
 import { useStore } from "@/lib/store"
 import { RECT_KIND_META } from "@/lib/rect-kinds"
@@ -10,8 +9,6 @@ import { sortChildrenByOrder } from "@/lib/auto-layout"
 import { childrenOf } from "@/lib/tree"
 import type { RectKind, SysNode } from "@/lib/types"
 import { useCanvasCtx } from "./canvas-context"
-
-const SPRING = { type: "spring" as const, stiffness: 320, damping: 28 }
 
 function RectKindIcon({ kind, className }: { kind: RectKind; className?: string }) {
   switch (kind) {
@@ -165,9 +162,7 @@ export function NodeView({ nodeId }: { nodeId: string }) {
 
   if (isSquare) {
     return (
-      <motion.div
-        layout
-        transition={SPRING}
+      <div
         data-node-id={nodeId}
         onPointerDown={(e) => {
           if (e.button !== 0) return
@@ -189,13 +184,12 @@ export function NodeView({ nodeId }: { nodeId: string }) {
           {titleInner}
         </div>
         <div className="absolute right-1 top-1">{controls}</div>
-      </motion.div>
+      </div>
     )
   }
 
   const title = (
-    <motion.div
-      layout="position"
+    <div
       className={`flex min-w-0 items-center gap-1.5 ${isPlate ? "node-plate-label w-full justify-center" : ""}`}
     >
       {!isPlate && node.type === "RECTANGLE" && kindMeta && (
@@ -205,13 +199,11 @@ export function NodeView({ nodeId }: { nodeId: string }) {
         <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Space</span>
       )}
       {titleInner}
-    </motion.div>
+    </div>
   )
 
   return (
-    <motion.div
-      layout
-      transition={SPRING}
+    <div
       data-droppable-id={isContainer || isPlate ? nodeId : undefined}
       data-node-id={nodeId}
       onPointerDown={(e) => {
@@ -253,7 +245,7 @@ export function NodeView({ nodeId }: { nodeId: string }) {
           </div>
           <div
             className="node-body node-body--auto relative flex w-full flex-1 flex-shrink-0 flex-wrap content-start gap-3 overflow-visible p-3"
-            style={nestedLayout ? { minHeight: nestedLayout.bodyHeight, width: nestedLayout.bodyWidth } : undefined}
+            style={nestedLayout ? { minHeight: nestedLayout.bodyHeight } : undefined}
           >
             {visibleChildren.flatMap((child, i) => {
               const items: ReactNode[] = []
@@ -267,17 +259,9 @@ export function NodeView({ nodeId }: { nodeId: string }) {
                 )
               }
               items.push(
-                <motion.div
-                  key={child.id}
-                  layout
-                  transition={SPRING}
-                  className="node-child-wrap shrink-0"
-                  initial={{ opacity: 0, scale: 0.92 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.92 }}
-                >
+                <div key={child.id} className="node-child-wrap shrink-0">
                   <NodeView nodeId={child.id} />
-                </motion.div>,
+                </div>,
               )
               return items
             })}
@@ -303,6 +287,6 @@ export function NodeView({ nodeId }: { nodeId: string }) {
           <div className="absolute right-1 top-1">{controls}</div>
         </div>
       )}
-    </motion.div>
+    </div>
   )
 }
