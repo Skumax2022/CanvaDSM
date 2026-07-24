@@ -3,17 +3,97 @@
 import { useRef } from "react"
 import { Download, RotateCcw, Upload } from "lucide-react"
 import { useStore } from "@/lib/store"
+import type { NodeMap, NodeType, RectKind, SysNode } from "@/lib/types"
 import type { ProjectFile } from "@/lib/types"
+
+const DEFAULT_SIZE: Record<NodeType, { width: number; height: number }> = {
+  SPACE: { width: 420, height: 320 },
+  RECTANGLE: { width: 240, height: 72 },
+  SQUARE: { width: 96, height: 96 },
+}
+const DEFAULT_TITLE: Record<NodeType, string> = {
+  SPACE: "New Space",
+  RECTANGLE: "New Rectangle",
+  SQUARE: "New Square",
+}
+const RECT_KINDS: RectKind[] = ["DEFAULT", "FUNCTION", "NUMBER", "OBJECT"]
+
+const finiteNum = (v: unknown, fallback: number): number => {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : fallback
+}
+const positiveNum = (v: unknown, fallback: number): number => {
+  const n = Number(v)
+  return Number.isFinite(n) && n > 0 ? n : fallback
+}
+
+/**
+ * Чинит импортированный JSON: нормализует типы/размеры/позиции,
+ * убирает висячие ссылки на родителей и зависимости, разрывает циклы вложенности.
+ */
+export function sanitizeNodes(raw: unknown): NodeMap {
+  if (!raw || typeof raw !== "object") throw new Error("Invalid project file: missing nodes map.")
+  const src = raw as Record<string, any>
+  const clean: NodeMap = {}
+
+  for (const key of Object.keys(src)) {
+    const n = src[key]
+    if (!n || typeof n !== "object") continue
+    const id = n.id != null ? String(n.id) : String(key)
+    const type: NodeType =
+      n.type === "SPACE" || n.type === "RECTANGLE" || n.type === "SQUARE" ? n.type : "RECTANGLE"
+    const def = DEFAULT_SIZE[type]
+    const pos = n.ui_position && typeof n.ui_position === "object" ? n.ui_position : {}
+    const size = n.ui_size && typeof n.ui_size === "object" ? n.ui_size : {}
+    const node: SysNode = {
+      id,
+      type,
+      title: typeof n.title === "string" && n.title.trim() ? n.title : DEFAULT_TITLE[type],
+      parentId: n.parentId != null ? String(n.parentId) : null,
+      dependencies: Array.isArray(n.dependencies) ? n.dependencies.map(String) : [],
+      ui_position: { x: finiteNum(pos.x, 0), y: finiteNum(pos.y, 0) },
+      ui_size: { width: positiveNum(size.width, def.width), height: positiveNum(size.height, def.height) },
+    }
+    if (type === "RECTANGLE") node.rectKind = RECT_KINDS.includes(n.rectKind) ? n.rectKind : "DEFAULT"
+    if (Number.isFinite(Number(n.ui_order))) node.ui_order = Number(n.ui_order)
+    clean[id] = node
+  }
+
+  if (!Object.keys(clean).length) throw new Error("Invalid project file: no valid nodes.")
+
+  // Висячие ссылки на родителей и зависимости
+  for (const id of Object.keys(clean)) {
+    const n = clean[id]
+    if (n.parentId != null && !clean[n.parentId]) n.parentId = null
+    n.dependencies = n.dependencies.filter((d) => clean[d] && d !== id)
+  }
+
+  // Разрыв циклов вложенности
+  for (const id of Object.keys(clean)) {
+    const seen = new Set<string>()
+    let cur: string | null = id
+    while (cur != null && clean[cur]) {
+      if (seen.has(cur)) break
+      seen.add(cur)
+      const p: string | null = clean[cur].parentId
+      if (p != null && seen.has(p)) {
+        clean[cur].parentId = null
+        break
+      }
+      cur = p
+    }
+  }
+
+  return clean
+}
 
 export function parseProjectFile(text: string): ProjectFile {
   const data = JSON.parse(text)
-  if (!data || typeof data !== "object" || typeof data.nodes !== "object") {
-    throw new Error("Invalid project file: missing nodes map.")
-  }
+  const nodesRaw = data && typeof data === "object" ? data.nodes ?? data : null
   return {
     version: 1,
-    name: typeof data.name === "string" ? data.name : "Imported System",
-    nodes: data.nodes,
+    name: data && typeof data.name === "string" ? data.name : "Imported System",
+    nodes: sanitizeNodes(nodesRaw),
   }
 }
 

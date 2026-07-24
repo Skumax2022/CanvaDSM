@@ -1,7 +1,6 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { motion } from "framer-motion"
 import { MousePointer2 } from "lucide-react"
 import { registerCanvasHandlers, setCanvasZoomLevel, unregisterCanvasHandlers } from "@/lib/canvas-bridge"
 import { clientToCanvas as canvasClientToCanvas } from "@/lib/canvas/coords"
@@ -320,23 +319,14 @@ export function CanvasWorkspace() {
               transform: `translate3d(${Math.round(camera.x)}px, ${Math.round(camera.y)}px, 0) scale(${camera.zoom})`,
             }}
           >
-            <motion.div
-              ref={contentRef}
-              key={viewParentId ?? "__root__"}
-              initial={{ opacity: 0, scale: 0.96 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ type: "spring", stiffness: 260, damping: 26 }}
-              className="relative"
-            >
+            <div ref={contentRef} key={viewParentId ?? "__root__"} className="relative">
               {topLevel.map((node) => {
                 const dragging =
                   visual.active && visual.dragIds.includes(node.id) && !visual.extracted
                 const offset = dragging ? delta : { x: 0, y: 0 }
                 return (
-                  <motion.div
+                  <div
                     key={node.id}
-                    layout={!dragging}
-                    transition={{ type: "spring", stiffness: 300, damping: 25 }}
                     className="absolute"
                     style={{
                       left: node.ui_position.x + offset.x,
@@ -344,11 +334,11 @@ export function CanvasWorkspace() {
                     }}
                   >
                     <NodeView nodeId={node.id} />
-                  </motion.div>
+                  </div>
                 )
               })}
               {visual.extracted && visual.extractCanvasPos && visual.dragIds[0] && (
-                <motion.div
+                <div
                   className="pointer-events-none absolute z-40 opacity-95 drop-shadow-[0_8px_24px_rgba(0,0,0,0.45)]"
                   style={{
                     left: visual.extractCanvasPos.x,
@@ -356,9 +346,9 @@ export function CanvasWorkspace() {
                   }}
                 >
                   <NodeView nodeId={visual.dragIds[0]} />
-                </motion.div>
+                </div>
               )}
-            </motion.div>
+            </div>
           </div>
 
           {marquee && (

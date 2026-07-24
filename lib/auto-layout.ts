@@ -17,6 +17,10 @@ export function isContainerType(type: NodeType): boolean {
 
 export const LAYOUT_GAP = 12
 export const LAYOUT_PAD = 12
+/** Container nodes render with box-sizing: border-box and a 1px border, so the
+ * content box is 2px smaller than the outer size. Account for it here so the
+ * simulated layout matches the DOM and children don't wrap prematurely. */
+export const LAYOUT_BORDER = 1
 export const NESTED_HEADER_H = 36
 export const NESTED_BODY_MIN = 48
 /** Prefer a single row up to this content width; beyond that, wrap. */
@@ -161,13 +165,14 @@ export function measureContainerSizeFromItems(
   items: LayoutItem[],
   minInnerWidth = 240,
 ): LayoutSize {
+  const border2 = LAYOUT_BORDER * 2
   if (!items.length) {
     const pad = LAYOUT_PAD * 2
     return {
       bodyWidth: minInnerWidth,
       bodyHeight: NESTED_BODY_MIN,
-      containerWidth: minInnerWidth + pad,
-      containerHeight: NESTED_BODY_MIN + pad + NESTED_HEADER_H,
+      containerWidth: minInnerWidth + pad + border2,
+      containerHeight: NESTED_BODY_MIN + pad + NESTED_HEADER_H + border2,
     }
   }
 
@@ -184,8 +189,8 @@ export function measureContainerSizeFromItems(
   return {
     bodyWidth,
     bodyHeight: layout.height,
-    containerWidth: bodyWidth + pad,
-    containerHeight: layout.height + pad + NESTED_HEADER_H,
+    containerWidth: bodyWidth + pad + border2,
+    containerHeight: layout.height + pad + NESTED_HEADER_H + border2,
   }
 }
 
