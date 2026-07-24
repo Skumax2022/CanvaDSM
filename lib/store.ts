@@ -1,7 +1,7 @@
 "use client"
 
 import { create } from "zustand"
-import type { NodeId, NodeMap, NodeType, RectKind, SysNode, ViewMode, ProjectFile } from "./types"
+import type { NodeId, NodeMap, NodeType, NodeStatus, RectKind, SysNode, ViewMode, ProjectFile } from "./types"
 import { MOCK_NODES, normalizeLayoutOrders } from "./mock-data"
 import { descendantIds, isAncestor, childrenOf } from "./tree"
 import {
@@ -89,6 +89,7 @@ interface AppState {
   selectMany: (ids: NodeId[]) => void
   toggleSelect: (id: NodeId) => void
   cycleRectKind: (id: NodeId) => void
+  cycleStatus: (id: NodeId) => void
   duplicateSelected: () => void
   copySelected: () => void
   pasteClipboard: (position?: { x: number; y: number }) => void
@@ -309,6 +310,18 @@ export const useStore = create<AppState>((set, get) => ({
       const idx = RECT_KINDS.indexOf(cur)
       const next = RECT_KINDS[(idx + 1) % RECT_KINDS.length]
       return { nodes: { ...state.nodes, [id]: { ...node, rectKind: next } } }
+    })
+  },
+
+  cycleStatus: (id) => {
+    get().pushHistory()
+    set((state) => {
+      const node = state.nodes[id]
+      if (!node) return state
+      const order: NodeStatus[] = ["todo", "in-progress", "done"]
+      const cur = node.status ?? "todo"
+      const next = order[(order.indexOf(cur) + 1) % order.length]
+      return { nodes: { ...state.nodes, [id]: { ...node, status: next } } }
     })
   },
 

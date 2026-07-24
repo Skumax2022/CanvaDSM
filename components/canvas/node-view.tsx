@@ -1,14 +1,44 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import { Box, Hash, Pencil, Settings2, Square, X } from "lucide-react"
+import { Box, CheckCircle2, Circle, CircleDashed, Hash, Loader, Pencil, Settings2, Square, X } from "lucide-react"
 import { useStore } from "@/lib/store"
 import { RECT_KIND_META } from "@/lib/rect-kinds"
 import { nestedContainerSize } from "@/lib/nested-bounds"
 import { sortChildrenByOrder } from "@/lib/auto-layout"
 import { childrenOf } from "@/lib/tree"
-import type { RectKind, SysNode } from "@/lib/types"
+import type { NodeStatus, RectKind, SysNode } from "@/lib/types"
 import { useCanvasCtx } from "./canvas-context"
+
+const STATUS_META: Record<
+  NodeStatus,
+  { label: string; icon: typeof Circle; color: string; ring: string }
+> = {
+  todo: { label: "Не готова", icon: CircleDashed, color: "text-muted-foreground", ring: "hover:bg-foreground/10" },
+  "in-progress": { label: "В работе", icon: Loader, color: "text-amber-500", ring: "hover:bg-amber-500/15" },
+  done: { label: "Готова", icon: CheckCircle2, color: "text-emerald-500", ring: "hover:bg-emerald-500/15" },
+}
+
+function StatusBadge({ nodeId, status }: { nodeId: string; status: NodeStatus }) {
+  const cycleStatus = useStore((s) => s.cycleStatus)
+  const meta = STATUS_META[status]
+  const Icon = meta.icon
+  return (
+    <button
+      type="button"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation()
+        cycleStatus(nodeId)
+      }}
+      title={`Статус: ${meta.label} — нажмите для смены`}
+      aria-label={`Статус: ${meta.label}. Нажмите, чтобы изменить`}
+      className={`flex items-center justify-center rounded-full bg-background/70 p-0.5 backdrop-blur-sm transition-colors ${meta.color} ${meta.ring}`}
+    >
+      <Icon className="size-3.5" aria-hidden />
+    </button>
+  )
+}
 
 function RectKindIcon({ kind, className }: { kind: RectKind; className?: string }) {
   switch (kind) {
@@ -52,6 +82,7 @@ export function NodeView({ nodeId }: { nodeId: string }) {
   const nested = hasChildren && isContainer
   const rectKind = node.rectKind ?? "DEFAULT"
   const kindMeta = node.type === "RECTANGLE" ? RECT_KIND_META[rectKind] : null
+  const status: NodeStatus = node.status ?? "todo"
   const isSquare = node.type === "SQUARE"
   const isPlate = node.type === "RECTANGLE" && !nested
   const isDragging = dragActive && dragIds.includes(nodeId) && !extracted
@@ -183,6 +214,9 @@ export function NodeView({ nodeId }: { nodeId: string }) {
         <div className="relative z-[1] flex h-full w-full items-center justify-center px-2 py-2 text-center">
           {titleInner}
         </div>
+        <div className="absolute left-1 top-1 z-[2]">
+          <StatusBadge nodeId={nodeId} status={status} />
+        </div>
         <div className="absolute right-1 top-1">{controls}</div>
       </div>
     )
@@ -240,7 +274,10 @@ export function NodeView({ nodeId }: { nodeId: string }) {
       {nested ? (
         <>
           <div className="flex items-center justify-between gap-2 border-b border-border/70 bg-background/30 px-2.5 py-1.5">
-            {title}
+            <div className="flex min-w-0 items-center gap-1.5">
+              <StatusBadge nodeId={nodeId} status={status} />
+              {title}
+            </div>
             {controls}
           </div>
           <div
@@ -284,6 +321,9 @@ export function NodeView({ nodeId }: { nodeId: string }) {
       ) : (
         <div className={`relative flex flex-1 items-center justify-center ${isPlate ? "px-[18px] py-3 text-center" : "px-3 py-2 text-center"}`}>
           {title}
+          <div className="absolute left-1 top-1 z-[2]">
+            <StatusBadge nodeId={nodeId} status={status} />
+          </div>
           <div className="absolute right-1 top-1">{controls}</div>
         </div>
       )}

@@ -64,6 +64,8 @@ export function CanvasWorkspace() {
   const cameraTargetRef = useRef<Camera>(camera)
   const rafRef = useRef<number | null>(null)
   const pointerInViewportRef = useRef({ x: 0, y: 0 })
+  const [interacting, setInteracting] = useState(false)
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const panRef = useRef<PanState | null>(null)
   const marqueeRef = useRef<MarqueeState | null>(null)
@@ -76,6 +78,12 @@ export function CanvasWorkspace() {
     const snapped = snapCamera(next)
     cameraTargetRef.current = snapped
     cameraRef.current = snapped
+    // Promote the content to its own layer only while actively panning/zooming.
+    // Once idle we drop back to `auto` so the browser re-rasterizes at the new
+    // scale, which keeps text/edges crisp instead of scaling a cached texture.
+    setInteracting(true)
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
+    idleTimerRef.current = setTimeout(() => setInteracting(false), 180)
     if (rafRef.current != null) return
     rafRef.current = requestAnimationFrame(() => {
       rafRef.current = null
@@ -134,6 +142,10 @@ export function CanvasWorkspace() {
   useEffect(() => {
     setCanvasZoomLevel(camera.zoom)
   }, [camera.zoom])
+
+  useEffect(() => () => {
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
+  }, [])
 
   useEffect(() => {
     applyCamera({ x: 60, y: 60, zoom: 1 })
@@ -314,9 +326,10 @@ export function CanvasWorkspace() {
           aria-label="Infinite canvas"
         >
           <div
-            className="absolute left-0 top-0 origin-top-left will-change-transform"
+            className="absolute left-0 top-0 origin-top-left"
             style={{
               transform: `translate3d(${Math.round(camera.x)}px, ${Math.round(camera.y)}px, 0) scale(${camera.zoom})`,
+              willChange: interacting ? "transform" : "auto",
             }}
           >
             <div ref={contentRef} key={viewParentId ?? "__root__"} className="relative">
