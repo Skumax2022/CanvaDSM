@@ -53,6 +53,7 @@ export function DSMWorkspace() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [containerW, setContainerW] = useState(0)
   const [hover, setHover] = useState<{ r?: number; c?: number } | null>(null)
+  const [zoom, setZoom] = useState(1)
 
   useEffect(() => {
     const el = scrollRef.current
@@ -79,7 +80,7 @@ export function DSMWorkspace() {
     return list
   }, [nodes, collapsedEff, search])
 
-  const cellSize = useMemo(() => {
+  const baseCell = useMemo(() => {
     if (!containerW || rows.length === 0) return PREFERRED_CELL
     const available = containerW - LABEL_W - 8
     const fit = Math.floor(available / rows.length)
@@ -87,6 +88,10 @@ export function DSMWorkspace() {
     if (fit >= MIN_CELL) return fit
     return PREFERRED_CELL
   }, [containerW, rows.length])
+
+  const cellSize = useMemo(() => {
+    return Math.round(Math.min(MAX_CELL * 2, Math.max(MIN_CELL, baseCell * zoom)))
+  }, [baseCell, zoom])
 
   const colHeaderHeight = useMemo(() => {
     const longest = rows.reduce((m, r) => Math.max(m, r.node.title.length), 0)
@@ -112,7 +117,28 @@ export function DSMWorkspace() {
             className="w-full rounded-md border border-border bg-card py-1.5 pl-8 pr-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary"
           />
         </div>
-        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="hidden select-none sm:inline">Scale</span>
+          <input
+            type="range"
+            min={0.5}
+            max={2}
+            step={0.05}
+            value={zoom}
+            onChange={(e) => setZoom(Number(e.target.value))}
+            aria-label="Adjust matrix horizontal scale"
+            className="h-1 w-28 cursor-pointer appearance-none rounded-full bg-border accent-primary"
+          />
+          <span className="w-9 tabular-nums text-foreground">{Math.round(zoom * 100)}%</span>
+          <button
+            type="button"
+            onClick={() => setZoom(1)}
+            className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-card hover:text-foreground"
+          >
+            Reset
+          </button>
+        </div>
+        <div className="hidden items-center gap-3 text-xs text-muted-foreground lg:flex">
           <span className="flex items-center gap-1.5">
             <span className="inline-block size-3 rounded-[3px] bg-primary" /> direct
           </span>
@@ -134,7 +160,7 @@ export function DSMWorkspace() {
         >
           <table
             className="border-separate border-spacing-0"
-            style={{ tableLayout: "fixed", minWidth: tableMinWidth, width: Math.max(tableMinWidth, containerW) }}
+            style={{ tableLayout: "fixed", width: tableMinWidth, minWidth: tableMinWidth }}
           >
             <thead>
               <tr>
