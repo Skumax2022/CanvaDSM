@@ -165,8 +165,8 @@ export function DSMWorkspace() {
             <thead>
               <tr>
                 <th
-                  className="sticky left-0 top-0 z-30 border-b border-r border-border bg-card"
-                  style={{ width: LABEL_W, minWidth: LABEL_W, height: colHeaderHeight }}
+                  className="sticky left-0 top-0 border-b border-r border-border bg-card"
+                  style={{ width: LABEL_W, minWidth: LABEL_W, height: colHeaderHeight, zIndex: 40 + rows.length }}
                 >
                   <div className="flex h-full items-end justify-start p-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                     rows depend on ↓ / cols →
@@ -175,30 +175,40 @@ export function DSMWorkspace() {
                 {rows.map((col, c) => {
                   const colActive = hover?.c === c
                   const isSpaceCol = col.node.type === "SPACE"
+                  // Diagonal length available before the label would run off the top of the header band.
+                  const maxLabelW = Math.round((colHeaderHeight - 16) * 1.414)
                   return (
                     <th
                       key={col.node.id}
                       onMouseEnter={() => setHover({ c })}
-                      className={`sticky top-0 z-20 overflow-hidden border-b border-border transition-colors duration-75 ${
+                      className={`sticky top-0 border-b border-border transition-colors duration-75 ${
                         colActive ? "bg-primary/12" : isSpaceCol ? "bg-muted/25" : "bg-card"
                       }`}
-                      style={{ width: cellSize, minWidth: cellSize, height: colHeaderHeight }}
+                      style={{
+                        width: cellSize,
+                        minWidth: cellSize,
+                        height: colHeaderHeight,
+                        // Earlier (left) columns paint above later ones so a label overflowing
+                        // up-and-to-the-right stays on top of its right-hand neighbours.
+                        zIndex: 20 + (rows.length - c),
+                      }}
                     >
-                      <div className="relative h-full w-full overflow-hidden">
+                      <div className="relative h-full w-full">
                         <div
-                          className="absolute bottom-1 left-1/2 flex origin-bottom-left items-center gap-1 whitespace-nowrap text-[11px] leading-none"
-                          style={{ transform: "translateX(-4px) rotate(-45deg)" }}
+                          className="pointer-events-none absolute bottom-1 left-0 flex origin-bottom-left items-center gap-1 whitespace-nowrap text-[11px] leading-none"
+                          style={{ transform: `translateX(${cellSize / 2 - 5}px) rotate(-45deg)` }}
                           title={col.node.title}
                         >
                           <NodeIcon node={col.node} />
                           <span
-                            className={`max-w-[120px] truncate ${
+                            className={`truncate ${
                               col.node.type === "RECTANGLE"
                                 ? RECT_KIND_META[col.node.rectKind ?? "DEFAULT"].dsmColor
                                 : isSpaceCol
                                   ? "text-muted-foreground/70"
                                   : "text-foreground"
                             }`}
+                            style={{ maxWidth: maxLabelW }}
                           >
                             {col.node.title}
                           </span>
