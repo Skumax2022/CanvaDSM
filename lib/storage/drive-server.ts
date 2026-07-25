@@ -5,17 +5,18 @@ import { JWT } from "google-auth-library"
  * Server-only Google Drive access via a service account.
  *
  * The app is bound to a single Drive folder and a single file named `map.json`
- * inside it. The service account credentials never reach the browser — all
- * reads/writes go through the API routes that call these helpers.
+ * inside it. The service account credentials never reach the browser.
  */
 
 const DRIVE_API = "https://www.googleapis.com/drive/v3"
 const DRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3"
 const MAP_FILE_NAME = "map.json"
 
-/** Folder from the shared link, overridable via env. Trimmed to avoid stray whitespace/newlines
- * in the env value producing an invalid parent id (which makes Drive create in the SA root -> 403). */
-export const DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID?.trim() || "16JymuUyCLZYj3PsKeCrE2JdH1RvDdbQ3"
+/** 
+ * Folder from the shared link, overridable via env. 
+ * Trimmed to avoid stray whitespace/newlines that cause 404/403 errors.
+ */
+export const DRIVE_FOLDER_ID = (process.env.GOOGLE_DRIVE_FOLDER_ID || "16JymuUyCLZYj3PsKeCrE2JdH1RvDdbQ3").trim()
 
 export class DriveConfigError extends Error {
   constructor(message: string) {
@@ -29,29 +30,34 @@ function readServiceAccount(): { client_email: string; private_key: string } {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_KEY
   if (!raw || !raw.trim()) {
     throw new DriveConfigError(
-      "GOOGLE_SERVICE_ACCOUNT_KEY is not set. Add the service account JSON key to enable Drive sync.",
+      "GOOGLE_SERVICE_ACCOUNT_KEY is not set. Add the service account JSON key to enable Drive sync."
     )
   }
   let text = raw.trim()
-  // Support base64-encoded keys (handy when a JSON blob is awkward in env UIs).
+  
   if (!text.startsWith("{")) {
     try {
       text = Buffer.from(text, "base64").toString("utf8")
     } catch {
-      /* fall through to JSON.parse error below */
+      // fall through
     }
   }
+  
   let parsed: { client_email?: string; private_key?: string }
   try {
     parsed = JSON.parse(text)
   } catch {
     throw new DriveConfigError("GOOGLE_SERVICE_ACCOUNT_KEY is not valid JSON.")
   }
+  
   if (!parsed.client_email || !parsed.private_key) {
     throw new DriveConfigError("Service account key is missing client_email or private_key.")
   }
-  // Normalize escaped newlines that env stores often introduce.
-  return { client_email: parsed.client_email, private_key: parsed.private_key.replace(/\\n/g, "\n") }
+  
+  return { 
+    client_email: parsed.client_email, 
+    private_key: parsed.private_key.replace(/\\n/g, "\n") 
+  }
 }
 
 let cachedClient: JWT | null = null
@@ -62,6 +68,7 @@ async function getAccessToken(): Promise<string> {
     cachedClient = new JWT({
       email: client_email,
       key: private_key,
+      // Full drive scope is required to upload files to shared folders
       scopes: ["https://www.googleapis.com/auth/drive"],
     })
   }
@@ -70,7 +77,6 @@ async function getAccessToken(): Promise<string> {
   return token
 }
 
-/** Whether the service account credentials are present (no network call). */
 export function isDriveServerConfigured(): boolean {
   return Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_KEY?.trim())
 }
@@ -84,23 +90,31 @@ async function driveFetch(url: string, token: string, init?: RequestInit): Promi
   return res
 }
 
+/** 
+ * Enhanced error parsing to extract exact Google API rejection reasons. 
+ */
 async function toError(res: Response, action: string): Promise<Error> {
   let detail = ""
   try {
     const body = await res.json()
+    // Extract the specific Google API error message
     detail = body?.error?.message || JSON.stringify(body?.error ?? body)
   } catch {
     detail = await res.text().catch(() => "")
   }
-  return new Error(`Drive ${action} failed (${res.status}): ${detail || res.statusText}`)
+  return new Error(`Drive [${action}] failed with status ${res.status}: ${detail || res.statusText}`)
 }
 
 /** Finds the id of `map.json` in the bound folder, or null if it doesn't exist yet. */
 async function findMapFileId(token: string): Promise<string | null> {
+  if (!DRIVE_FOLDER_ID) throw new Error("DRIVE_FOLDER_ID is missing or empty.");
+  
   const q = encodeURIComponent(`name='${MAP_FILE_NAME}' and '${DRIVE_FOLDER_ID}' in parents and trashed=false`)
   const url = `${DRIVE_API}/files?q=${q}&fields=files(id,modifiedTime)&pageSize=1&supportsAllDrives=true&includeItemsFromAllDrives=true`
+  
   const res = await driveFetch(url, token)
   if (!res.ok) throw await toError(res, "lookup")
+    
   const data = (await res.json()) as { files?: Array<{ id: string }> }
   return data.files?.[0]?.id ?? null
 }
@@ -122,6 +136,7 @@ export async function readMapFile(): Promise<DriveReadResult> {
 
   const res = await driveFetch(`${DRIVE_API}/files/${fileId}?alt=media&supportsAllDrives=true`, token)
   if (!res.ok) throw await toError(res, "download")
+    
   const content = await res.text()
   return { content, fileId, modifiedTime }
 }
@@ -132,6 +147,7 @@ export async function writeMapFile(content: string): Promise<{ fileId: string; m
   const existingId = await findMapFileId(token)
   const boundary = "-------canvadsm" + Math.random().toString(36).slice(2)
 
+  // Ensure we pass the folder ID explicitly when creating a new file
   const metadata: Record<string, unknown> = existingId
     ? {}
     : { name: MAP_FILE_NAME, parents: [DRIVE_FOLDER_ID], mimeType: "application/json" }
@@ -154,7 +170,9 @@ export async function writeMapFile(content: string): Promise<{ fileId: string; m
     headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
     body,
   })
+  
   if (!res.ok) throw await toError(res, "upload")
+    
   const data = (await res.json()) as { id: string; modifiedTime?: string }
   return { fileId: data.id, modifiedTime: data.modifiedTime ?? new Date().toISOString() }
 }
