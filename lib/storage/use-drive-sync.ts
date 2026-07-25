@@ -120,8 +120,18 @@ export function useDriveSync(options: UseDriveSyncOptions = {}): UseDriveSync {
         return
       }
       setConfigured(true)
-      if (!body?.empty && body?.data) {
-        onLoadRef.current?.(body.data as ProjectData)
+
+      // FIXED: Properly parsing the stringified content returned from our backend route
+      if (body?.content) {
+        try {
+          const parsedData = JSON.parse(body.content)
+          // Ensure it's not the empty "{}" we manually created
+          if (Object.keys(parsedData).length > 0) {
+            onLoadRef.current?.(parsedData as ProjectData)
+          }
+        } catch (parseErr) {
+          console.error("Failed to parse drive content:", parseErr)
+        }
         setLastSaved(new Date(body?.modifiedTime ?? Date.now()))
         setStatus("saved")
       } else {
