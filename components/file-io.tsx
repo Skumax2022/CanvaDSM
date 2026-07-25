@@ -145,7 +145,10 @@ export function FileIO() {
   }, [nodes, projectName])
 
   const { configured, loaded, status, lastSaved, error, save, saveNow } = useDriveSync({
-    onLoad: (data) => loadProject(fromProjectData(data)),
+    onLoad: (data) => {
+  console.log("Loading into store:", data);
+  useStore.setState({ nodes: data.nodes as NodeMap }); 
+},
   })
 
   // Debounced auto-save: once the initial Drive load has completed, persist every edit.
