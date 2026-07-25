@@ -1,10 +1,13 @@
 "use client"
 
-import { useRef } from "react"
+import { useCallback, useEffect, useRef } from "react"
 import { Download, RotateCcw, Upload } from "lucide-react"
 import { useStore } from "@/lib/store"
-import type { NodeMap, NodeType, RectKind, SysNode } from "@/lib/types"
+import type { NodeMap, NodeStatus, NodeType, RectKind, SysNode } from "@/lib/types"
 import type { ProjectFile } from "@/lib/types"
+import type { ProjectData, ProjectEdge } from "@/lib/storage/types"
+import { useDriveSync } from "@/lib/storage/use-drive-sync"
+import { SyncStatusBadge } from "./sync-status-badge"
 
 const DEFAULT_SIZE: Record<NodeType, { width: number; height: number }> = {
   SPACE: { width: 420, height: 320 },
@@ -17,6 +20,7 @@ const DEFAULT_TITLE: Record<NodeType, string> = {
   SQUARE: "New Square",
 }
 const RECT_KINDS: RectKind[] = ["DEFAULT", "FUNCTION", "NUMBER", "OBJECT"]
+const NODE_STATUSES: NodeStatus[] = ["todo", "in-progress", "done"]
 
 const finiteNum = (v: unknown, fallback: number): number => {
   const n = Number(v)
@@ -55,6 +59,7 @@ export function sanitizeNodes(raw: unknown): NodeMap {
       ui_size: { width: positiveNum(size.width, def.width), height: positiveNum(size.height, def.height) },
     }
     if (type === "RECTANGLE") node.rectKind = RECT_KINDS.includes(n.rectKind) ? n.rectKind : "DEFAULT"
+    if (NODE_STATUSES.includes(n.status)) node.status = n.status
     if (Number.isFinite(Number(n.ui_order))) node.ui_order = Number(n.ui_order)
     clean[id] = node
   }
@@ -97,6 +102,30 @@ export function parseProjectFile(text: string): ProjectFile {
   }
 }
 
+/** Serializes the current store into the provider-agnostic ProjectData shape. */
+export function toProjectData(nodes: NodeMap, name: string): ProjectData {
+  const edges: ProjectEdge[] = []
+  for (const node of Object.values(nodes)) {
+    for (const dep of node.dependencies) edges.push({ from: node.id, to: dep })
+  }
+  return {
+    version: 1,
+    nodes: nodes as unknown as Record<string, unknown>,
+    edges,
+    meta: { name, modifiedTime: new Date().toISOString() },
+  }
+}
+
+/** Converts a loaded ProjectData back into a sanitized ProjectFile. */
+export function fromProjectData(data: ProjectData): ProjectFile {
+  const nodesRaw = data && typeof data === "object" ? (data.nodes ?? data) : null
+  const name = typeof data?.meta?.name === "string" && data.meta.name.trim() ? data.meta.name : "Drive Project"
+  return { version: 1, name, nodes: sanitizeNodes(nodesRaw) }
+}
+
+const btnBase =
+  "flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+
 export function FileIO() {
   const inputRef = useRef<HTMLInputElement>(null)
   const nodes = useStore((s) => s.nodes)
@@ -104,7 +133,7 @@ export function FileIO() {
   const loadProject = useStore((s) => s.loadProject)
   const reset = useStore((s) => s.reset)
 
-  const handleExport = () => {
+  const downloadLocal = useCallback(() => {
     const file: ProjectFile = { version: 1, name: projectName, nodes }
     const blob = new Blob([JSON.stringify(file, null, 2)], { type: "application/json" })
     const url = URL.createObjectURL(blob)
@@ -113,7 +142,23 @@ export function FileIO() {
     a.download = `${projectName.replace(/\s+/g, "-").toLowerCase()}.canvas.json`
     a.click()
     URL.revokeObjectURL(url)
-  }
+  }, [nodes, projectName])
+
+  const { configured, loaded, status, lastSaved, error, save, saveNow } = useDriveSync({
+    onLoad: (data) => loadProject(fromProjectData(data)),
+  })
+
+  // Debounced auto-save: once the initial Drive load has completed, persist every edit.
+  const skipFirstRef = useRef(true)
+  useEffect(() => {
+    if (configured !== true || !loaded) return
+    if (skipFirstRef.current) {
+      // Skip the render right after load so we don't immediately re-save what we just read.
+      skipFirstRef.current = false
+      return
+    }
+    save(toProjectData(nodes, projectName))
+  }, [nodes, projectName, configured, loaded, save])
 
   const handleImport = async (file: File) => {
     try {
@@ -125,20 +170,30 @@ export function FileIO() {
     }
   }
 
+  const handleRetry = () => void saveNow(toProjectData(nodes, projectName))
+
   return (
     <div className="flex items-center gap-1">
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        title="Import project (.json)"
-        className="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-      >
+      {configured && (
+        <>
+          <SyncStatusBadge
+            status={status}
+            lastSaved={lastSaved}
+            error={error}
+            onRetry={status === "error" || status === "offline" ? handleRetry : undefined}
+            onDownloadLocal={status === "error" || status === "offline" ? downloadLocal : undefined}
+          />
+          <span className="mx-1 h-5 w-px bg-border" aria-hidden />
+        </>
+      )}
+
+      <button type="button" onClick={() => inputRef.current?.click()} title="Import project (.json)" className={btnBase}>
         <Upload className="size-4" aria-hidden />
         <span className="hidden lg:inline">Import</span>
       </button>
       <button
         type="button"
-        onClick={handleExport}
+        onClick={downloadLocal}
         title="Export project (.json)"
         className="flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
       >
