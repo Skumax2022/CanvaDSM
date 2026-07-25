@@ -13,8 +13,9 @@ const DRIVE_API = "https://www.googleapis.com/drive/v3"
 const DRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3"
 const MAP_FILE_NAME = "map.json"
 
-/** Folder from the shared link, overridable via env. */
-export const DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID || "16JymuUyCLZYj3PsKeCrE2JdH1RvDdbQ3"
+/** Folder from the shared link, overridable via env. Trimmed to avoid stray whitespace/newlines
+ * in the env value producing an invalid parent id (which makes Drive create in the SA root -> 403). */
+export const DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID?.trim() || "16JymuUyCLZYj3PsKeCrE2JdH1RvDdbQ3"
 
 export class DriveConfigError extends Error {
   constructor(message: string) {
