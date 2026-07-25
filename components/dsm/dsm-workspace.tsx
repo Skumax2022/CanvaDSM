@@ -53,6 +53,7 @@ export function DSMWorkspace() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [containerW, setContainerW] = useState(0)
   const [hover, setHover] = useState<{ r?: number; c?: number } | null>(null)
+  const [zoom, setZoom] = useState(1)
 
   useEffect(() => {
     const el = scrollRef.current
@@ -79,7 +80,7 @@ export function DSMWorkspace() {
     return list
   }, [nodes, collapsedEff, search])
 
-  const cellSize = useMemo(() => {
+  const baseCell = useMemo(() => {
     if (!containerW || rows.length === 0) return PREFERRED_CELL
     const available = containerW - LABEL_W - 8
     const fit = Math.floor(available / rows.length)
@@ -87,6 +88,10 @@ export function DSMWorkspace() {
     if (fit >= MIN_CELL) return fit
     return PREFERRED_CELL
   }, [containerW, rows.length])
+
+  const cellSize = useMemo(() => {
+    return Math.round(Math.min(MAX_CELL * 2, Math.max(MIN_CELL, baseCell * zoom)))
+  }, [baseCell, zoom])
 
   const colHeaderHeight = useMemo(() => {
     const longest = rows.reduce((m, r) => Math.max(m, r.node.title.length), 0)
@@ -112,7 +117,28 @@ export function DSMWorkspace() {
             className="w-full rounded-md border border-border bg-card py-1.5 pl-8 pr-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-primary"
           />
         </div>
-        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="hidden select-none sm:inline">Scale</span>
+          <input
+            type="range"
+            min={0.5}
+            max={2}
+            step={0.05}
+            value={zoom}
+            onChange={(e) => setZoom(Number(e.target.value))}
+            aria-label="Adjust matrix horizontal scale"
+            className="h-1 w-28 cursor-pointer appearance-none rounded-full bg-border accent-primary"
+          />
+          <span className="w-9 tabular-nums text-foreground">{Math.round(zoom * 100)}%</span>
+          <button
+            type="button"
+            onClick={() => setZoom(1)}
+            className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-card hover:text-foreground"
+          >
+            Reset
+          </button>
+        </div>
+        <div className="hidden items-center gap-3 text-xs text-muted-foreground lg:flex">
           <span className="flex items-center gap-1.5">
             <span className="inline-block size-3 rounded-[3px] bg-primary" /> direct
           </span>
@@ -134,13 +160,13 @@ export function DSMWorkspace() {
         >
           <table
             className="border-separate border-spacing-0"
-            style={{ tableLayout: "fixed", minWidth: tableMinWidth, width: Math.max(tableMinWidth, containerW) }}
+            style={{ tableLayout: "fixed", width: tableMinWidth, minWidth: tableMinWidth }}
           >
             <thead>
               <tr>
                 <th
-                  className="sticky left-0 top-0 z-30 border-b border-r border-border bg-card"
-                  style={{ width: LABEL_W, minWidth: LABEL_W, height: colHeaderHeight }}
+                  className="sticky left-0 top-0 border-b border-r border-border bg-card"
+                  style={{ width: LABEL_W, minWidth: LABEL_W, height: colHeaderHeight, zIndex: 40 + rows.length }}
                 >
                   <div className="flex h-full items-end justify-start p-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                     rows depend on ↓ / cols →
@@ -149,30 +175,40 @@ export function DSMWorkspace() {
                 {rows.map((col, c) => {
                   const colActive = hover?.c === c
                   const isSpaceCol = col.node.type === "SPACE"
+                  // Diagonal length available before the label would run off the top of the header band.
+                  const maxLabelW = Math.round((colHeaderHeight - 16) * 1.414)
                   return (
                     <th
                       key={col.node.id}
                       onMouseEnter={() => setHover({ c })}
-                      className={`sticky top-0 z-20 overflow-hidden border-b border-border transition-colors duration-75 ${
+                      className={`sticky top-0 border-b border-border transition-colors duration-75 ${
                         colActive ? "bg-primary/12" : isSpaceCol ? "bg-muted/25" : "bg-card"
                       }`}
-                      style={{ width: cellSize, minWidth: cellSize, height: colHeaderHeight }}
+                      style={{
+                        width: cellSize,
+                        minWidth: cellSize,
+                        height: colHeaderHeight,
+                        // Earlier (left) columns paint above later ones so a label overflowing
+                        // up-and-to-the-right stays on top of its right-hand neighbours.
+                        zIndex: 20 + (rows.length - c),
+                      }}
                     >
-                      <div className="relative h-full w-full overflow-hidden">
+                      <div className="relative h-full w-full">
                         <div
-                          className="absolute bottom-1 left-1/2 flex origin-bottom-left items-center gap-1 whitespace-nowrap text-[11px] leading-none"
-                          style={{ transform: "translateX(-4px) rotate(-45deg)" }}
+                          className="pointer-events-none absolute bottom-1 left-0 flex origin-bottom-left items-center gap-1 whitespace-nowrap text-[11px] leading-none"
+                          style={{ transform: `translateX(${cellSize / 2 - 5}px) rotate(-45deg)` }}
                           title={col.node.title}
                         >
                           <NodeIcon node={col.node} />
                           <span
-                            className={`max-w-[120px] truncate ${
+                            className={`truncate ${
                               col.node.type === "RECTANGLE"
                                 ? RECT_KIND_META[col.node.rectKind ?? "DEFAULT"].dsmColor
                                 : isSpaceCol
                                   ? "text-muted-foreground/70"
                                   : "text-foreground"
                             }`}
+                            style={{ maxWidth: maxLabelW }}
                           >
                             {col.node.title}
                           </span>
