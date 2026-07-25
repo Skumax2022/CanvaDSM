@@ -1,8 +1,10 @@
 "use client"
 
+import { Suspense } from "react"
 import { Boxes } from "lucide-react"
 import { BreadcrumbNav } from "./breadcrumb-nav"
 import { ViewSwitcher } from "./view-switcher"
+import { FileIO } from "./file-io"
 
 export function Header() {
   return (
@@ -16,6 +18,12 @@ export function Header() {
 
       <div className="order-3 flex w-full items-center justify-center md:order-none md:w-auto md:flex-1">
         <ViewSwitcher />
+      </div>
+
+      <div className="ml-auto flex items-center">
+        <Suspense fallback={null}>
+          <FileIO />
+        </Suspense>
       </div>
     </header>
   )
