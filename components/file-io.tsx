@@ -1,13 +1,12 @@
 "use client"
 
 import { useCallback, useEffect, useRef } from "react"
-import { CloudUpload, Download, FolderOpen, HardDrive, RotateCcw, Upload } from "lucide-react"
+import { Download, RotateCcw, Upload } from "lucide-react"
 import { useStore } from "@/lib/store"
 import type { NodeMap, NodeStatus, NodeType, RectKind, SysNode } from "@/lib/types"
 import type { ProjectFile } from "@/lib/types"
 import type { ProjectData, ProjectEdge } from "@/lib/storage/types"
-import { StorageError } from "@/lib/storage/types"
-import { isDriveConfigured, useDriveSync } from "@/lib/storage/use-drive-sync"
+import { useDriveSync } from "@/lib/storage/use-drive-sync"
 import { SyncStatusBadge } from "./sync-status-badge"
 
 const DEFAULT_SIZE: Record<NodeType, { width: number; height: number }> = {
@@ -145,21 +144,21 @@ export function FileIO() {
     URL.revokeObjectURL(url)
   }, [nodes, projectName])
 
-  const { status, lastSaved, fileId, error, connected, connect, save, saveNow, loadFromDrive } = useDriveSync(
-    undefined,
-    { onLoad: (data) => loadProject(fromProjectData(data)) },
-  )
+  const { configured, loaded, status, lastSaved, error, save, saveNow } = useDriveSync({
+    onLoad: (data) => loadProject(fromProjectData(data)),
+  })
 
-  // Debounced auto-save: once a Drive file is active, persist edits automatically.
+  // Debounced auto-save: once the initial Drive load has completed, persist every edit.
   const skipFirstRef = useRef(true)
   useEffect(() => {
-    if (!connected || !fileId) return
+    if (configured !== true || !loaded) return
     if (skipFirstRef.current) {
+      // Skip the render right after load so we don't immediately re-save what we just read.
       skipFirstRef.current = false
       return
     }
     save(toProjectData(nodes, projectName))
-  }, [nodes, projectName, connected, fileId, save])
+  }, [nodes, projectName, configured, loaded, save])
 
   const handleImport = async (file: File) => {
     try {
@@ -171,72 +170,19 @@ export function FileIO() {
     }
   }
 
-  const notifyDriveError = (err: unknown) => {
-    if (err instanceof StorageError && err.code === "auth-cancelled") return
-    const message = err instanceof Error ? err.message : "Google Drive action failed."
-    // eslint-disable-next-line no-alert
-    alert(message)
-  }
-
-  const handleConnectDrive = async () => {
-    try {
-      await connect()
-    } catch (err) {
-      notifyDriveError(err)
-    }
-  }
-
-  const handleOpenFromDrive = async () => {
-    // eslint-disable-next-line no-alert
-    const input = window.prompt("Paste a Google Drive file ID or share link:")
-    if (!input) return
-    try {
-      await loadFromDrive(input)
-    } catch (err) {
-      notifyDriveError(err)
-    }
-  }
-
-  const handleSaveToDrive = async () => {
-    try {
-      skipFirstRef.current = true // avoid an immediate auto-save echo after this write
-      await saveNow(toProjectData(nodes, projectName))
-    } catch (err) {
-      notifyDriveError(err)
-    }
-  }
+  const handleRetry = () => void saveNow(toProjectData(nodes, projectName))
 
   return (
     <div className="flex items-center gap-1">
-      {isDriveConfigured && (
+      {configured && (
         <>
           <SyncStatusBadge
             status={status}
             lastSaved={lastSaved}
             error={error}
-            onRetry={status === "error" || status === "offline" ? handleSaveToDrive : undefined}
+            onRetry={status === "error" || status === "offline" ? handleRetry : undefined}
             onDownloadLocal={status === "error" || status === "offline" ? downloadLocal : undefined}
           />
-          {!connected ? (
-            <button type="button" onClick={handleConnectDrive} title="Connect Google Drive" className={btnBase}>
-              <HardDrive className="size-4" aria-hidden />
-              <span className="hidden lg:inline">Connect Drive</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleSaveToDrive}
-              title={fileId ? "Save to Google Drive" : "Create file on Google Drive"}
-              className={btnBase}
-            >
-              <CloudUpload className="size-4" aria-hidden />
-              <span className="hidden lg:inline">{fileId ? "Save to Drive" : "Create on Drive"}</span>
-            </button>
-          )}
-          <button type="button" onClick={handleOpenFromDrive} title="Open project from Google Drive" className={btnBase}>
-            <FolderOpen className="size-4" aria-hidden />
-            <span className="hidden xl:inline">Open from Drive</span>
-          </button>
           <span className="mx-1 h-5 w-px bg-border" aria-hidden />
         </>
       )}

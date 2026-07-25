@@ -1,98 +1,81 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { useSearchParams } from "next/navigation"
-import { driveProvider } from "./drive-adapter"
-import { StorageError, type ProjectData, type StorageStatus } from "./types"
+import type { ProjectData, StorageStatus } from "./types"
 
-const SAVE_DEBOUNCE_MS = 2500
-
-/** True when a Google OAuth client id is present at build time. */
-export const isDriveConfigured = Boolean(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID)
+const SAVE_DEBOUNCE_MS = 2000
+const API_URL = "/api/drive"
 
 export interface UseDriveSyncOptions {
-  /** Applies a project loaded from Drive to the caller's state. */
+  /** Applies the project loaded from Drive to the caller's state. */
   onLoad?: (data: ProjectData) => void
 }
 
 export interface UseDriveSync {
+  /** null while we haven't yet learned whether the server has Drive credentials. */
+  configured: boolean | null
+  /** True once the initial load attempt has completed (success or empty). */
+  loaded: boolean
   status: StorageStatus
   lastSaved: Date | null
-  fileId: string | null
   error: string | null
-  connected: boolean
-  /** Triggers the OAuth flow. */
-  connect: () => Promise<void>
-  /** Debounced save — waits 2.5s after the last call before writing. */
+  /** Debounced save — waits ~2s after the last call before writing. */
   save: (data: ProjectData) => void
-  /** Immediate save/create, bypassing the debounce. */
+  /** Immediate save, bypassing the debounce. */
   saveNow: (data: ProjectData) => Promise<void>
-  /** Loads a project by Drive file id (or shareable URL). */
-  loadFromDrive: (idOrUrl: string) => Promise<void>
+  /** Re-reads map.json from Drive. */
+  reload: () => Promise<void>
 }
 
-/** Extracts a Drive file id from a raw id or a typical Drive share URL. */
-export function extractFileId(input: string): string {
-  const trimmed = input.trim()
-  const match = trimmed.match(/[-\w]{25,}/)
-  return match ? match[0] : trimmed
-}
-
-export function useDriveSync(initialFileId?: string, options: UseDriveSyncOptions = {}): UseDriveSync {
+/**
+ * Syncs the project with a single `map.json` file in a fixed Google Drive folder
+ * via server API routes backed by a service account. Loads once on mount and
+ * auto-saves (debounced) on every change.
+ */
+export function useDriveSync(options: UseDriveSyncOptions = {}): UseDriveSync {
   const { onLoad } = options
-  const searchParams = useSearchParams()
 
+  const [configured, setConfigured] = useState<boolean | null>(null)
+  const [loaded, setLoaded] = useState(false)
   const [status, setStatus] = useState<StorageStatus>("idle")
   const [lastSaved, setLastSaved] = useState<Date | null>(null)
-  const [fileId, setFileId] = useState<string | null>(initialFileId ?? null)
   const [error, setError] = useState<string | null>(null)
-  const [connected, setConnected] = useState(false)
 
-  // Keep the latest onLoad without retriggering effects.
   const onLoadRef = useRef(onLoad)
   useEffect(() => {
     onLoadRef.current = onLoad
   }, [onLoad])
 
-  const fileIdRef = useRef<string | null>(fileId)
-  useEffect(() => {
-    fileIdRef.current = fileId
-  }, [fileId])
-
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingRef = useRef<ProjectData | null>(null)
 
-  const reportError = useCallback((err: unknown) => {
-    const message = err instanceof Error ? err.message : "Unexpected storage error."
-    const offline = err instanceof StorageError && (err.code === "network" || err.code === "not-configured")
-    setError(message)
-    setStatus(offline ? "offline" : "error")
-  }, [])
-
-  const runSave = useCallback(
-    async (data: ProjectData) => {
-      setStatus("saving")
-      setError(null)
-      try {
-        const currentId = fileIdRef.current
-        if (currentId) {
-          const result = await driveProvider.saveFile(currentId, data)
-          setFileId(result.fileId)
-          setLastSaved(new Date(result.modifiedTime))
-        } else {
-          const title = (data.meta?.name as string | undefined) ?? "CanvaDSM Project"
-          const { fileId: newId } = await driveProvider.createFile(title, data)
-          setFileId(newId)
-          setLastSaved(new Date())
+  const runSave = useCallback(async (data: ProjectData) => {
+    setStatus("saving")
+    setError(null)
+    try {
+      const res = await fetch(API_URL, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (res.status === 503) {
+          setConfigured(false)
+          setStatus("offline")
+          setError("Google Drive is not configured on the server.")
+          return
         }
-        setConnected(true)
-        setStatus("saved")
-      } catch (err) {
-        reportError(err)
+        throw new Error(body?.error || `Save failed (${res.status}).`)
       }
-    },
-    [reportError],
-  )
+      setConfigured(true)
+      setLastSaved(new Date(body?.modifiedTime ?? Date.now()))
+      setStatus("saved")
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed.")
+      setStatus("error")
+    }
+  }, [])
 
   const save = useCallback(
     (data: ProjectData) => {
@@ -120,56 +103,59 @@ export function useDriveSync(initialFileId?: string, options: UseDriveSyncOption
     [runSave],
   )
 
-  const connect = useCallback(async () => {
-    setError(null)
+  const load = useCallback(async () => {
     try {
-      await driveProvider.authenticate()
-      setConnected(true)
-      setStatus((s) => (s === "offline" || s === "error" ? "idle" : s))
-    } catch (err) {
-      reportError(err)
-      throw err
-    }
-  }, [reportError])
-
-  const loadFromDrive = useCallback(
-    async (idOrUrl: string) => {
-      const id = extractFileId(idOrUrl)
-      if (!id) return
-      setStatus("saving")
-      setError(null)
-      try {
-        const data = await driveProvider.loadFile(id)
-        setFileId(id)
-        setConnected(true)
-        onLoadRef.current?.(data)
-        setLastSaved(new Date(typeof data.meta?.modifiedTime === "string" ? data.meta.modifiedTime : Date.now()))
-        setStatus("saved")
-      } catch (err) {
-        reportError(err)
-        throw err
+      const res = await fetch(API_URL, { method: "GET", cache: "no-store" })
+      if (res.status === 503) {
+        setConfigured(false)
+        setLoaded(true)
+        return
       }
-    },
-    [reportError],
-  )
-
-  // Auto-load a project referenced via ?fileId= on mount.
-  const autoLoadedRef = useRef(false)
-  useEffect(() => {
-    if (autoLoadedRef.current) return
-    const urlFileId = searchParams?.get("fileId") ?? initialFileId
-    if (urlFileId) {
-      autoLoadedRef.current = true
-      void loadFromDrive(urlFileId)
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setConfigured(true)
+        setError(body?.error || `Load failed (${res.status}).`)
+        setStatus("error")
+        setLoaded(true)
+        return
+      }
+      setConfigured(true)
+      if (!body?.empty && body?.data) {
+        onLoadRef.current?.(body.data as ProjectData)
+        setLastSaved(new Date(body?.modifiedTime ?? Date.now()))
+        setStatus("saved")
+      } else {
+        // Folder has no map.json yet — first save will create it.
+        setStatus("idle")
+      }
+      setLoaded(true)
+    } catch (err) {
+      setConfigured(true)
+      setError(err instanceof Error ? err.message : "Load failed.")
+      setStatus("error")
+      setLoaded(true)
     }
-  }, [searchParams, initialFileId, loadFromDrive])
+  }, [])
 
-  // Flush any pending debounced save on unmount.
+  const reload = useCallback(async () => {
+    setLoaded(false)
+    await load()
+  }, [load])
+
+  // Load once on mount.
+  const startedRef = useRef(false)
+  useEffect(() => {
+    if (startedRef.current) return
+    startedRef.current = true
+    void load()
+  }, [load])
+
+  // Flush pending debounced save on unmount.
   useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
   }, [])
 
-  return { status, lastSaved, fileId, error, connected, connect, save, saveNow, loadFromDrive }
+  return { configured, loaded, status, lastSaved, error, save, saveNow, reload }
 }
