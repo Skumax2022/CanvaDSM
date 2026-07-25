@@ -3,7 +3,7 @@
 import { useRef } from "react"
 import { Download, RotateCcw, Upload } from "lucide-react"
 import { useStore } from "@/lib/store"
-import type { NodeMap, NodeType, RectKind, SysNode } from "@/lib/types"
+import type { NodeMap, NodeStatus, NodeType, RectKind, SysNode } from "@/lib/types"
 import type { ProjectFile } from "@/lib/types"
 
 const DEFAULT_SIZE: Record<NodeType, { width: number; height: number }> = {
@@ -17,6 +17,7 @@ const DEFAULT_TITLE: Record<NodeType, string> = {
   SQUARE: "New Square",
 }
 const RECT_KINDS: RectKind[] = ["DEFAULT", "FUNCTION", "NUMBER", "OBJECT"]
+const NODE_STATUSES: NodeStatus[] = ["todo", "in-progress", "done"]
 
 const finiteNum = (v: unknown, fallback: number): number => {
   const n = Number(v)
@@ -55,6 +56,7 @@ export function sanitizeNodes(raw: unknown): NodeMap {
       ui_size: { width: positiveNum(size.width, def.width), height: positiveNum(size.height, def.height) },
     }
     if (type === "RECTANGLE") node.rectKind = RECT_KINDS.includes(n.rectKind) ? n.rectKind : "DEFAULT"
+    if (NODE_STATUSES.includes(n.status)) node.status = n.status
     if (Number.isFinite(Number(n.ui_order))) node.ui_order = Number(n.ui_order)
     clean[id] = node
   }
