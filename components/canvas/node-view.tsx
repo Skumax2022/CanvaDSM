@@ -119,7 +119,7 @@ export function NodeView({ nodeId }: { nodeId: string }) {
   }
 
   const controls = !editing && (
-    <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover/node:opacity-100">
+    <div className={`flex items-center gap-0.5 transition-opacity ${isSelected ? "opacity-100" : "opacity-0 group-hover/node:opacity-100"}`}>
       {node.type === "RECTANGLE" && (
         <button
           type="button"
